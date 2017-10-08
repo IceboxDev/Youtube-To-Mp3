@@ -9,7 +9,7 @@ Usage:
 
 Options:
     Name           : i.e. "Rick Asley - Never Gonna Give You Up"
-    --Path=<p>     : Download path       [default: /home/icebox/Music]
+    --Path=<p>     : Download path       [default: /home/%s/Music]
     --Vf=<vf>      : Format of the video [default: mp4]
     --Af=<af>      : Format of the audio [default: mp3]
     -c, --choice   : Allow user to choose a song himself
@@ -29,6 +29,7 @@ from docopt import docopt
 import subprocess
 import termcolor
 import requests
+import getpass
 import html
 import re
 import os
@@ -40,24 +41,24 @@ def line(color = "red"):
     
     termcolor.cprint("-" * number, color)
 
-def text(text, index, bold = 0, end = "\n"):
+def text(text, index, color = "green", bold = 0, end = "\n"):
 
     if index:
-        termcolor.cprint("%s." %str(index), "cyan" , attrs=["bold"] , end = "")
+        termcolor.cprint("%s." %str(index), "cyan" , attrs=["bold"] , end = "" )
     else:
-        termcolor.cprint("  "             , "cyan" , attrs=["bold"] , end = "")
+        termcolor.cprint("  "             , "cyan" , attrs=["bold"] , end = "" )
 
-    termcolor.cprint("| "                 , "red"                   , end = "")
+    termcolor.cprint("| "                 , "red"                   , end = "" )
 
     if bold == "A":
-        termcolor.cprint(text             , "green", attrs=["bold"] , end = end)
+        termcolor.cprint(text             , color  , attrs=["bold"] , end = end)
 
     elif bold:
-        termcolor.cprint(text[:bold]      , "green", attrs=["bold"] , end = "" )
-        termcolor.cprint(text[bold:]      , "green"                 , end = end)
+        termcolor.cprint(text[:bold]      , color  , attrs=["bold"] , end = "" )
+        termcolor.cprint(text[bold:]      , color                   , end = end)
 
     else:
-        termcolor.cprint(text             , "green"                 , end = end)
+        termcolor.cprint(text             , color                   , end = end)
 
 #Given a youtube link, it downloads the video
 #Renames the video file to name
@@ -84,7 +85,7 @@ def download_video(link, name, path="/home/icebox/Music", file_type="mp4"):
     except OSError:
         if display:
             message = "Error: A file with this name already exists"
-            text(message, 4 + choosing, bold="A")
+            text(message, 4 + choosing, color="red", bold="A")
             line()
 
         else:
@@ -108,10 +109,20 @@ def find_video_link(name, choice = False, override = True):
 
     names = re.findall(names_regex, source)
     links = re.findall(links_regex, source)
-
+    
     names = names[len(names) == 21:]
     links = links[len(links) == 21:]
-    
+   
+    invalid_links = []
+    for index in range(len(links)):
+        if "channel" in links[index] or \
+           "user"    in links[index]:
+            invalid_links.append(index)
+
+    for index in invalid_links[::-1]:
+        del names[index]
+        del links[index]
+
     if choice and display:
         message = "Multiple matching videos found:"
         text(message, 2)
@@ -196,7 +207,7 @@ def get(name, convert = True):
             line()
 
     elif display:
-        text("Done!", 5 + choosing, bold = "A")
+        text("Done!", 4 + choosing, bold = "A")
         line()
 
 #Main Docopt function
@@ -239,7 +250,8 @@ def main(docopt_args):
             
 if __name__ == "__main__":
 
-    arguments = docopt(__doc__, version="YoutubeToMp3 Converter 1.2")
-
+    user = getpass.getuser()
+    arguments = docopt(__doc__ %user, version="YoutubeToMp3 Converter 1.3")
+    
     main(arguments)
 
