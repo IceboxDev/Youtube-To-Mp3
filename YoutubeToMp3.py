@@ -26,11 +26,38 @@ from pydub  import AudioSegment
 from pytube import YouTube
 from docopt import docopt
 
+import subprocess
 import termcolor
 import requests
 import html
 import re
 import os
+
+def line(color = "red"):
+    
+    output = str(subprocess.check_output(["tput", "cols"]))
+    number = int(output.lstrip("b'").rstrip("\\n'"))
+    
+    termcolor.cprint("-" * number, color)
+
+def text(text, index, bold = 0, end = "\n"):
+
+    if index:
+        termcolor.cprint("%s." %str(index), "cyan" , attrs=["bold"] , end = "")
+    else:
+        termcolor.cprint("  "             , "cyan" , attrs=["bold"] , end = "")
+
+    termcolor.cprint("| "                 , "red"                   , end = "")
+
+    if bold == "A":
+        termcolor.cprint(text             , "green", attrs=["bold"] , end = end)
+
+    elif bold:
+        termcolor.cprint(text[:bold]      , "green", attrs=["bold"] , end = "" )
+        termcolor.cprint(text[bold:]      , "green"                 , end = end)
+
+    else:
+        termcolor.cprint(text             , "green"                 , end = end)
 
 #Given a youtube link, it downloads the video
 #Renames the video file to name
@@ -48,21 +75,17 @@ def download_video(link, name, path="/home/icebox/Music", file_type="mp4"):
     video = yt.get(file_type, res)
 
     if display:
-        termcolor.cprint("3."         , "cyan" , attrs=["bold"] , end=""  )
-        termcolor.cprint("|"          , "red"                   , end=""  )
-        termcolor.cprint("Downloading video in .%s format and %s resolution" \
-                    %(file_type, res) , "green"                 , end="\n")
+        message = "Downloading video in .%s format and %s resolution" %(file_type, res)
+        text(message, 3 + choosing)
     
     try:
         video.download(path)
 
     except OSError:
         if display:
-            termcolor.cprint("4."         , "cyan" , attrs=["bold"] , end=""  )
-            termcolor.cprint("|"          , "red"                   , end=""  )
-            termcolor.cprint("Error: A file with this name already exists" \
-                                          , "red"  , attrs=["bold"] , end="\n")
-            termcolor.cprint("--+"+"-"*98 , "red"  , attrs=["bold"] , end="\n")
+            message = "Error: A file with this name already exists"
+            text(message, 4 + choosing, bold="A")
+            line()
 
         else:
             termcolor.cprint("Error: A file with this name already exists", "red")
@@ -90,20 +113,19 @@ def find_video_link(name, choice = False, override = True):
     links = links[len(links) == 21:]
     
     if choice and display:
-        termcolor.cprint("2."                               , "cyan", attrs=["bold"], end=""  )
-        termcolor.cprint("|"                                , "red"                 , end=""  )
-        termcolor.cprint("Multiple matching videos found:"  , "green"               , end="\n")
+        message = "Multiple matching videos found:"
+        text(message, 2)
 
         for index, sname in enumerate(names):
-            termcolor.cprint("  |"                , "red"   ,                 end=""  )
-            termcolor.cprint("[%s] " %(" "*(index+1 < 10) + str(index+1))\
-                                                  , "green" , attrs=["bold"], end=""  )
-            termcolor.cprint(html.unescape(sname) , "green" ,                 end="\n")
+            song_index = "[%s] " %(" "*(index+1 < 10) + str(index+1))
+            song_name  = html.unescape(sname)
+            message = song_index + song_name
+
+            text(message, None, bold=4)
 
         while True:
-            termcolor.cprint("  |     "                                , "red"   , end="")
-            termcolor.cprint("Which song would you like to download: " , "green" , end="")
-
+            message = "     Which song would you like to download"
+            text(message, None, end = " ")
             index = input()
 
             try:
@@ -112,12 +134,10 @@ def find_video_link(name, choice = False, override = True):
                 break
 
             except AssertionError:
-                termcolor.cprint("  |     "                    , "red"   , end=""  )
-                termcolor.cprint("That is not a valid number!" , "green" , end="\n")
+                text("That is not a valid number!", None)
 
             except ValueError:
-                termcolor.cprint("  |     "                    , "red"   , end=""  )
-                termcolor.cprint("That is not a number!"       , "green" , end="\n")
+                text("That is not a number!", None)
 
         index -= 1
 
@@ -125,10 +145,8 @@ def find_video_link(name, choice = False, override = True):
         if override:
             name = names[index]
 
-        termcolor.cprint("2."   , "cyan", attrs=["bold"], end=""  )
-        termcolor.cprint("|"    , "red"                 , end=""  )
-        termcolor.cprint("Matching video found: '%s'" \
-        %html.unescape(names[index]), "green"               , end="\n")
+        message = "Selected %s" %html.unescape(names[index])
+        text(message, 3)
 
         return (DOWNLOAD %links[index], name)
 
@@ -137,11 +155,9 @@ def find_video_link(name, choice = False, override = True):
             name = names[0]
 
         if display:
-            termcolor.cprint("2."   , "cyan", attrs=["bold"], end=""  )
-            termcolor.cprint("|"    , "red"                 , end=""  )
-            termcolor.cprint("Matching video found: '%s'" \
-            %html.unescape(names[0]), "green"               , end="\n")
-        
+            message = "Matching video found: '%s'" %html.unescape(names[0])
+            text(message, 2)
+
         return (DOWNLOAD %links[0], name)
 
 #Converts the video file to mp3
@@ -156,11 +172,10 @@ def video_to_mp3(path, file_type, audio_format="mp3", keep_both=False):
 def get(name, convert = True):
 
     if display:
-        termcolor.cprint("--+"+"-"*98 , "red" , attrs=["bold"], end="\n")
-        termcolor.cprint("1."         , "cyan", attrs=["bold"], end=""  )
-        termcolor.cprint("|"          , "red"                 , end=""  )
-        termcolor.cprint("Finding matching video for '%s'" \
-                                %name , "green"               , end="\n")
+        message = "Finding matching video for '%s'" %name
+
+        line()
+        text(message, 1)
 
     values = find_video_link(name, choice = choosing, override = name_keep)
     video  = download_video(*values, path = dl_path, file_type = VideoF)
@@ -168,9 +183,8 @@ def get(name, convert = True):
     if convert == True:
 
         if display:
-            termcolor.cprint("4."                          , "cyan" , attrs=["bold"] , end=""  )
-            termcolor.cprint("|"                           , "red"                   , end=""  )
-            termcolor.cprint("Converting the file to .mp3" , "green"                 , end="\n")
+            message = "Converting the file to .mp3 format"
+            text(message, 4 + choosing)
 
         P, F, E   = video
         full_path = "%s/%s.%s" %(P, F, E)
@@ -178,16 +192,12 @@ def get(name, convert = True):
         video_to_mp3(full_path, E, audio_format = AudioF, keep_both = both_files)
     
         if display:
-            termcolor.cprint("5."         , "cyan" , attrs=["bold"] , end=""  )
-            termcolor.cprint("|"          , "red"                   , end=""  )
-            termcolor.cprint("Done!"      , "green", attrs=["bold"] , end="\n")
-            termcolor.cprint("--+"+"-"*98 , "red"  , attrs=["bold"] , end="\n")
+            text("Done!", 5 + choosing, bold = "A")
+            line()
 
     elif display:
-        termcolor.cprint("4."         , "cyan" , attrs=["bold"] , end=""  )
-        termcolor.cprint("|"          , "red"                   , end=""  )
-        termcolor.cprint("Done!"      , "green", attrs=["bold"] , end="\n")
-        termcolor.cprint("--+"+"-"*98 , "red"  , attrs=["bold"] , end="\n")
+        text("Done!", 5 + choosing, bold = "A")
+        line()
 
 #Main Docopt function
 def main(docopt_args):
@@ -229,7 +239,7 @@ def main(docopt_args):
             
 if __name__ == "__main__":
 
-    arguments = docopt(__doc__, version="YoutubeToMp3 Converter 1.1")
+    arguments = docopt(__doc__, version="YoutubeToMp3 Converter 1.2")
 
     main(arguments)
 
