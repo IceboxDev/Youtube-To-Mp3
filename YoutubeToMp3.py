@@ -3,13 +3,14 @@
 """Youtube To MP3 Converter
 
 Usage:
-    YoutubeToMp3.py <Name> [-c][-s][-v][-b][-n] [--Path=<p>] [--Vf=<vf>] [--Af=<af>]
+    YoutubeToMp3.py <Name> [-c][-s][-v][-b][-n][-p] [--sub=<s>] [--path=<p>] [--Vf=<vf>] [--Af=<af>]
     YoutubeToMp3.py (-h | --help)
     YoutubeToMp3.py --version
 
 Options:
     Name           : i.e. "Rick Asley - Never Gonna Give You Up"
-    --Path=<p>     : Download path       [default: /home/%s/Music]
+    --path=<p>     : Download path       [default: /home/%s/Music]
+    --sub=<s>      : Subfolder inside the path
     --Vf=<vf>      : Format of the video [default: mp4]
     --Af=<af>      : Format of the audio [default: mp3]
     -c, --choice   : Allow user to choose a song himself
@@ -17,6 +18,7 @@ Options:
     -v, --video    : Download only the video file
     -b, --both     : Keep both, video and audio files
     -n, --name     : Keep the name, that has been specified
+    -p, --play     : Play the song/video after downloading it
     -h, --help     : Show this screen.
     --version      : Show version.
 
@@ -61,8 +63,6 @@ def text(text, index, color = "green", bold = 0, end = "\n"):
         termcolor.cprint(text             , color                   , end = end)
 
 #Given a youtube link, it downloads the video
-#Renames the video file to name
-#Prioritizes best quality
 def download_video(link, name, path="/home/icebox/Music", file_type="mp4"):
     yt = YouTube(link)
     
@@ -79,18 +79,39 @@ def download_video(link, name, path="/home/icebox/Music", file_type="mp4"):
         message = "Downloading video in .%s format and %s resolution" %(file_type, res)
         text(message, 3 + choosing)
     
-    try:
-        video.download(path)
+    if os.path.isdir(path):
+        try:
+            if subfolder:
+                full_path = "%s/%s" %(path, subfolder)
 
-    except OSError:
+                if not os.path.isdir(full_path):
+                    os.makedirs(full_path)
+
+                video.download(full_path)
+
+            else:
+                video.download(path)
+
+        except OSError:
+            if display:
+                message = "Error: A file with this name already exists"
+                text(message, 4 + choosing, color="red", bold="A")
+                line()
+
+            else:
+                termcolor.cprint("Error: A file with this name already exists", "red")
+
+            exit()
+
+    else:
         if display:
-            message = "Error: A file with this name already exists"
+            message = "Error: The given directory does not exist"
             text(message, 4 + choosing, color="red", bold="A")
             line()
 
         else:
-            termcolor.cprint("Error: A file with this name already exists", "red")
-
+            termcolor.cprint("Error: The given directory does not exist")
+        
         exit()
 
     return (path, name, file_type)
@@ -174,6 +195,11 @@ def find_video_link(name, choice = False, override = True):
 #Converts the video file to mp3
 def video_to_mp3(path, file_type, audio_format="mp3", keep_both=False):
 
+    if subfolder:
+        plist = path.split("/")
+        dire  = "/".join(plist[:-1])
+        path  = "%s/%s/%s" %(dire, subfolder, plist[-1])
+
     AudioSegment.from_file(path).export(path.rstrip("."+file_type), format=audio_format)
 
     if not keep_both:
@@ -191,24 +217,31 @@ def get(name, convert = True):
     values = find_video_link(name, choice = choosing, override = name_keep)
     video  = download_video(*values, path = dl_path, file_type = VideoF)
 
+    P, F, E   = video
+    full_path = "%s/%s.%s" %(P, F, E)
+
     if convert == True:
 
         if display:
             message = "Converting the file to .mp3 format"
             text(message, 4 + choosing)
 
-        P, F, E   = video
-        full_path = "%s/%s.%s" %(P, F, E)
-
         video_to_mp3(full_path, E, audio_format = AudioF, keep_both = both_files)
     
         if display:
             text("Done!", 5 + choosing, bold = "A")
             line()
+        
+        if autoplay:
+            os.system("xdg-open '%s'" %full_path.rstrip(".%s" %E))
 
-    elif display:
-        text("Done!", 4 + choosing, bold = "A")
-        line()
+    else:
+        if autoplay:
+            os.system("xdg-open '%s'" %full_path)
+
+        if display:
+            text("Done!", 4 + choosing, bold = "A")
+            line()
 
 #Main Docopt function
 def main(docopt_args):
@@ -220,6 +253,8 @@ def main(docopt_args):
     global VideoF
     global AudioF
     global dl_path
+    global subfolder
+    global autoplay
 
     if docopt_args["<Name>"]:
 
@@ -228,7 +263,9 @@ def main(docopt_args):
         video_only = docopt_args["--video" ]
         name_keep  = docopt_args["--name"  ]
         choosing   = docopt_args["--choice"]
-        dl_path    = docopt_args["--Path"  ]
+        autoplay   = docopt_args["--play"  ]
+        dl_path    = docopt_args["--path"  ]
+        subfolder  = docopt_args["--sub"   ]
         VideoF     = docopt_args["--Vf"    ]
         AudioF     = docopt_args["--Af"    ]
         
@@ -251,7 +288,7 @@ def main(docopt_args):
 if __name__ == "__main__":
 
     user = getpass.getuser()
-    arguments = docopt(__doc__ %user, version="YoutubeToMp3 Converter 1.3")
+    arguments = docopt(__doc__ %user, version="YoutubeToMp3 Converter 1.5")
     
     main(arguments)
 
