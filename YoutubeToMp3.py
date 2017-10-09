@@ -32,6 +32,7 @@ from pytube import YouTube
 from docopt import docopt
 
 import subprocess
+import pyperclip
 import termcolor
 import requests
 import getpass
@@ -40,7 +41,7 @@ import re
 import os
 
 #Constants
-VERSION = 2.0
+VERSION = 2.1
 USER    = getpass.getuser()
 INDEX   = 1
 
@@ -77,7 +78,7 @@ def text(text, index, color = "green", bold = 0, end = "\n"):
     else:
         termcolor.cprint(text             , color                   , end = end)
     
-    if INDEX:
+    if index:
         INDEX += 1
     
 ###############################################################################
@@ -137,18 +138,21 @@ def download_video(link, name, path, video_format):
     yt.set_filename(name)
     
     regex   = r"\d{3,4}p"
-    quality = str(yt.filter(video_format)[-1])
-    match   = re.search(regex, quality)
-    res     = match.group(0)
 
-    video = yt.get(video_format, res)
-    
     try:
+        quality = str(yt.filter(video_format)[-1])
+        match   = re.search(regex, quality)
+        res     = match.group(0)
+        video   = yt.get(video_format, res)
+    
         video.download(path)
         return True
         
     except OSError:
-        return False
+        return 2
+    
+    except IndexError:
+        return 3
 
 #Converts the video file to mp3
 def video_to_mp3(path, target, audio_format):
@@ -157,7 +161,7 @@ def video_to_mp3(path, target, audio_format):
     
     AudioSegment.from_file(input_file).export(output_file, format=audio_format)
     
-    return True
+    return output_file
 
 ###############################################################################
 #Tool Functions
@@ -174,7 +178,9 @@ def arguments():
     if args["--video"]  and args["--both"  ]:
         termcolor.cprint("Warning: Video flag shouldn't be used together with Both-Files flag. \
                           \nIgnoring Video flag.",  "red")
-                          
+
+        args["--video"] = not args["--video"]
+
     return args
 
 #Creates a valid path
@@ -201,7 +207,7 @@ def path(options, display):
         if not os.path.isdir(full_path):
             if display:
                 message = "Creating subdirectory %s" %subfolder
-                text(message, INDEX, color="red", bold="A")
+                text(message, INDEX)
                 
             os.makedirs(full_path)
         
@@ -211,16 +217,19 @@ def path(options, display):
         return path
 
 #Handles failed downloads
-def failed_download(file_path, target, display):
+def failed_download(file_path, target, error, display):
     global INDEX
     
     full_path = "%s/%s" %(file_path, target)
     
-    if os.path.isfile(full_path):
+    if os.path.isfile(full_path) and error == 2:
         message = "Error: A file with this name already exists"
-        
+    
+    elif error == 3:
+        message = "Error: Unable to download the video with specified format"
+
     else:
-        message = "OSError: The download failed!"
+        message = "Error: The download failed!"
         
     if display:
         text(message, INDEX, color="red", bold="A")
@@ -249,10 +258,17 @@ def delete(path, target, display):
 def by_clip(display):
     global INDEX
     
-    link = subprocess.check_output(["xclip", "-o"])
-    link = str(link).lstrip("b").strip("'")
+    if display:
+        message = "Converting the video link"
+        text(message, INDEX)
+
+    link = pyperclip.paste()
     name = link_to_name(link)
-    
+
+    if display:
+        message = "Video name - '%s'" %name
+        text(message, INDEX)
+
     return (link, name)
 
 #Returns video link and name by using provided name
@@ -291,14 +307,14 @@ def by_name(name, choice, display):
                 break
 
             except AssertionError:
-                text("That is not a valid number!", None)
+                text("     That is not a valid number!", None)
 
             except ValueError:
-                text("That is not a number!", None)
+                text("     That is not a number!", None)
 
         song_index -= 1
 
-        message = "Selected %s" %html.unescape(names[song_index])
+        message = "Selected video: '%s'" %html.unescape(names[song_index])
         text(message, INDEX)
     
     elif display:
@@ -331,9 +347,10 @@ def main(options):
     
     if options["--name"]:
         name = options["<Name>"]
-         
-    video_format = options["--Vf"]
-    audio_format = options["--Af"]
+    
+    autoplay     = options["--play"]
+    video_format = options["--Vf"  ]
+    audio_format = options["--Af"  ]
     file_path    = path(options, display)
     
     if display:
@@ -343,39 +360,46 @@ def main(options):
     download    = download_video(link, name, file_path, video_format)
     convert     = not options["--video"]
     target_file = "%s.%s" %(name, video_format)
-    
-    if download and convert:
+
+    if convert and download == True:
         if display:
             message = "Converting the file to .%s format" %audio_format
             text(message, INDEX)
         
-        video_to_mp3(file_path, target_file, audio_format)
+        song = video_to_mp3(file_path, target_file, audio_format)
         
         if not options["--both"]:
             delete(file_path, target_file, display)
             
-    elif not download:
-        failed_download(file_path, target_file, display)
+    elif download == 2 or download == 3:
+        failed_download(file_path, target_file, download, display)
     
     if display:
         text("Done!", INDEX, bold = "A")
+        
+        if autoplay and convert:
+            message = "Now playing: '%s'" %song.split("/")[-1]
+            text(message, INDEX)
+            play_target = song.split("/")[-1]
+            
+        elif autoplay:
+            message = "Now playing: '%s'" %target_file
+            text(message, INDEX)
+            play_target = target_file
+            
         line()
+    
+    else:
+        if autoplay and convert:
+            play_target = song.split("/")[-1]
+        
+        elif autoplay:
+            play_target = target_file
+
+    if autoplay:
+        song_path = "%s/%s" %(file_path, play_target)
+        os.system("xdg-open '%s'" %song_path)
         
 if __name__ == "__main__":
     options = arguments()
     main(options)
-    
-    
-
-"""
-    
-    display    = docopt_args["--silent" ]
-    both_files = docopt_args["--both"   ]
-    video_only = docopt_args["--video"  ]
-    name_keep  = docopt_args["--name"   ]
-    choosing   = docopt_args["--choice" ]
-    autoplay   = docopt_args["--play"   ]
-    
-"""
-    
-
