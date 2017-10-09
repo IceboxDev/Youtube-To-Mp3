@@ -4,7 +4,7 @@
 
 Usage:
     Youtube <Name> [-c][-s][-v][-b][-n][-p] [--sub=<s>] [--path=<p>] [--Vf=<vf>] [--Af=<af>]
-    Youtube --clip [-s][-v][-b][-p] [--sub=<s>] [--path=<p>] [--Vf=<vf>] [--Af=<af>]
+    Youtube --clip [-s][-v][-b][-p][-t]     [--sub=<s>] [--path=<p>] [--Vf=<vf>] [--Af=<af>]
     Youtube (-h | --help)
     Youtube --version
 
@@ -20,6 +20,7 @@ Options:
     -b, --both          : Keep both, video and audio files
     -n, --name          : Keep the name, that has been specified
     -p, --play          : Play the song/video after downloading it
+    -t, --text          : Use clipboard contents as video name
     -h, --help          : Show this screen.
     --clip              : Use the link from your clipboard
     --version           : Show version.
@@ -41,7 +42,7 @@ import re
 import os
 
 #Constants
-VERSION = 2.2
+VERSION = 2.3
 USER    = getpass.getuser()
 INDEX   = 1
 
@@ -137,8 +138,25 @@ def validate(link):
     r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'
     r'(?::\d+)?'
     r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+    
+    if regex.match(link) == None:
+        link = "http://" + link
 
-    return (regex.match(link) != None) and ("youtube" in link) and ("watch" in link)
+        if regex.match(link) == None:
+            return False
+
+    session  = requests.Session()
+    response = session.head(link, allow_redirects = True).url
+
+    A = regex.match(response) != None
+    B = "youtube" in response
+    C = "watch"   in response
+
+    if A and B and C:
+        return response
+    
+    else:
+        return False
 
 ###############################################################################
 #Download and conversion functions
@@ -270,22 +288,50 @@ def delete(path, target, display):
 def by_clip(display):
     global INDEX
     
-    link = pyperclip.paste()
+    clipboard = pyperclip.paste()
+    link      = validate(clipboard)
 
-    if not validate(link):
-        message1 = "Error: Clipboard contains - '%s'" %link
+    if not link:
+        message1 = "Error: Clipboard contains - '%s'" %clipboard
         message2 = "That is not a valid youtube video link!"
+        message3 = "Would you like to use clipboard content as video name? [y/n] "
+        message4 = "Invalid input. Input should be either 'y' or 'n'"
 
         if display:
             text(message1, INDEX, color="red", bold="A")
             text(message2, None , color="red", bold="A")
-            line()
 
         else:
             termcolor.cprint(message1, "red")
             termcolor.cprint(message2, "red")
 
+        while True:
+            if display:
+                text(message3, None , color="red", bold="A", end="")
+            
+            else:    
+                termcolor.cprint(message3, "red", end="")
+            
+            inp = input().lower()
+                
+            if inp == "y" or inp == "n":
+                break
+            
+            else:
+                if display:
+                    text(message4, None , color="red", bold="A")
+
+                else:
+                    termcolor.cprint(message4, "red")
+
+        if inp == "y":
+            return False
+
+        if display:
+            line()
+        
         exit()
+
 
     if display:
         message = "Converting the video link"
@@ -312,9 +358,21 @@ def by_name(name, choice, display):
         
     names, links = name_to_link(name)
     names, links = filtering(names, links)
-    
+
+    if len(links) == 0:
+        message = "No videos with that name were found!"
+        
+        if display:
+            text(message, INDEX, color="red", bold="A")
+            line()
+
+        else:
+            termcolor.cprint(message)
+
+        exit()
+
     if choice and display:
-        message = "Multiple matching videos found:"
+        message = "Matching video%s found:" %("s" * (len(links) > 1))
         text(message, INDEX)
 
         for index, sname in enumerate(names):
@@ -331,7 +389,7 @@ def by_name(name, choice, display):
 
             try:
                 song_index = int(song_index)
-                assert (0 < song_index <= 20)
+                assert (0 < song_index <= len(names))
                 break
 
             except AssertionError:
@@ -360,7 +418,8 @@ def main(options):
     global INDEX
     
     display = not options["--silent"]
-    if display:
+
+    if display and not options["--text"]:
         line()
         
     name = options["<Name>"]
@@ -371,8 +430,25 @@ def main(options):
         link, name = by_name(name, choice, display)
     
     elif clip:
-        link, name = by_clip(display)
-    
+        clipboard = pyperclip.paste()
+        
+        if options["--text"]:
+            options["<Name>"] = clipboard
+            options["--text"] = False
+            options["--clip"] = False
+            return False
+
+        else:
+            returned = by_clip(display)
+
+            if returned:
+                link, name = returned
+            
+            else:
+                options["<Name>"] = clipboard
+                options["--clip"] = False
+                return False
+        
     if options["--name"]:
         name = options["<Name>"]
     
@@ -427,7 +503,10 @@ def main(options):
     if autoplay:
         song_path = "%s/%s" %(file_path, play_target)
         os.system("xdg-open '%s'" %song_path)
-        
+    
+    return True
 if __name__ == "__main__":
     options = arguments()
-    main(options)
+    
+    while not main(options):
+        pass
