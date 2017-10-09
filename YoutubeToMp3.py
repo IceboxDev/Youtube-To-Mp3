@@ -41,7 +41,7 @@ import re
 import os
 
 #Constants
-VERSION = 2.1
+VERSION = 2.2
 USER    = getpass.getuser()
 INDEX   = 1
 
@@ -82,7 +82,7 @@ def text(text, index, color = "green", bold = 0, end = "\n"):
         INDEX += 1
     
 ###############################################################################
-#Scraping functions
+#Scraping and link functions
 ###############################################################################
 
 #Youtube video link to it's name
@@ -127,6 +127,18 @@ def filtering(names, links, filt="watch"):
         del links[index]
     
     return (names, links)
+
+#Validates link
+def validate(link):
+    regex = re.compile(
+    r'^(?:http|ftp)s?://'
+    r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'
+    r'localhost|'
+    r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'
+    r'(?::\d+)?'
+    r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+
+    return (regex.match(link) != None) and ("youtube" in link) and ("watch" in link)
 
 ###############################################################################
 #Download and conversion functions
@@ -258,11 +270,27 @@ def delete(path, target, display):
 def by_clip(display):
     global INDEX
     
+    link = pyperclip.paste()
+
+    if not validate(link):
+        message1 = "Error: Clipboard contains - '%s'" %link
+        message2 = "That is not a valid youtube video link!"
+
+        if display:
+            text(message1, INDEX, color="red", bold="A")
+            text(message2, None , color="red", bold="A")
+            line()
+
+        else:
+            termcolor.cprint(message1, "red")
+            termcolor.cprint(message2, "red")
+
+        exit()
+
     if display:
         message = "Converting the video link"
         text(message, INDEX)
 
-    link = pyperclip.paste()
     name = link_to_name(link)
 
     if display:
