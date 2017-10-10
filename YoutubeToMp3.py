@@ -37,12 +37,13 @@ import pyperclip
 import termcolor
 import requests
 import getpass
+import errno
 import html
 import re
 import os
 
 #Constants
-VERSION = 3.0
+VERSION = 3.1
 USER    = getpass.getuser()
 INDEX   = 1
 
@@ -195,10 +196,15 @@ def validate(link):
 
     A = regex.match(response) != None
     B = "youtube" in response
+    U = unavailable(response)
 
     if A and B:
         if   "watch"    in response:
-            return (True, "V", response) #V for Video
+            if U:
+                return (True, "U", U       ) #U for unavailabe
+            
+            else:
+                return (True, "V", response) #V for video
 
         elif "user"     in response or "channel" in response:
             return (True, "C", response) #C for channel
@@ -211,6 +217,26 @@ def validate(link):
 
     else:
         return (True, False, response)
+
+#Checks if the video is available
+def unavailable(link):
+    r       = requests.get(link)
+    source  = r.text
+
+    regex1  = r'(?<=<h1 id="unavailable-message" class="message">)(.*?)(?=</h1>)'
+    regex2  = r'(?<=<div id="player-unavailable" class=")(.*?)(?=player-width)'
+
+    match1  = re.search(regex1, source, re.DOTALL)
+    match2  = re.search(regex2, source, re.DOTALL)
+
+    try:
+        hidden = match2.group(0).strip()
+        assert hidden == "hid"
+        return False
+
+    except AttributeError:
+        error = match1.group(0).strip()
+        return error
 
 ###############################################################################
 #Download and conversion functions
@@ -232,8 +258,12 @@ def download_video(link, name, path, video_format):
         video.download(path)
         return True
         
-    except OSError:
-        return 2
+    except OSError as error:
+        if error.errno == 13:
+            return 4
+
+        else:
+            return 2
     
     except IndexError:
         return 3
@@ -311,6 +341,9 @@ def failed_download(file_path, target, error, display):
     
     elif error == 3:
         message = "Error: Unable to download the video with specified format"
+
+    elif error == 4:
+        message = "Permission denied"
 
     else:
         message = "Error: The download failed!"
@@ -439,7 +472,7 @@ def by_name(name, choice, display):
         text(message, INDEX)
     
     elif display:
-        message = "Matching video found: '%s'" %html.unescape(names[song_index])
+        message = "Matching video found: \'%s\'" %html.unescape(names[song_index])
         text(message, INDEX)
     
     return (DOWNLOAD %links[song_index], names[song_index])
@@ -512,6 +545,18 @@ def main(options):
                 PLAYLIST_LEN = len(links)
 
                 return (None, links)
+            
+            elif opt == "U":
+                message = content
+
+                if display:
+                    text(message, INDEX, color="red", bold="A")
+                    line()
+
+                else:
+                    termcolor(message, "red")
+
+                exit()
 
             else:
                 message = "'%s' is an invalid %slink!" %(content, "YouTube "*(opt=="E")) 
@@ -568,7 +613,7 @@ def get(name, link, options):
         if not options["--both"]:
             delete(file_path, target_file, display)
             
-    elif download == 2 or download == 3:
+    elif download == 2 or download == 3 or download == 4:
         failed_download(file_path, target_file, download, display)
     
     if display:
