@@ -3,8 +3,9 @@
 """Youtube To MP3 Converter
 
 Usage:
-    Youtube <Name> [-c][-s][-v][-b][-n][-p] [--sub=<s>] [--path=<p>] [--Vf=<vf>] [--Af=<af>]
-    Youtube --clip [-s][-v][-b][-p][-t]     [--sub=<s>] [--path=<p>] [--Vf=<vf>] [--Af=<af>]
+    Youtube vid   <Name> [-c][-s][-v][-b][-n][-p] [--sub=<s>] [--path=<p>] [--Vf=<vf>] [--Af=<af>]
+    Youtube clip         [-s][-v][-b][-p][-t]     [--sub=<s>] [--path=<p>] [--Vf=<vf>] [--Af=<af>]
+
     Youtube (-h | --help)
     Youtube --version
 
@@ -22,7 +23,6 @@ Options:
     -p, --play          : Play the song/video after downloading it
     -t, --text          : Use clipboard contents as video name
     -h, --help          : Show this screen.
-    --clip              : Use the link from your clipboard
     --version           : Show version.
 
 """
@@ -42,7 +42,7 @@ import re
 import os
 
 #Constants
-VERSION = 2.3
+VERSION = 3.0
 USER    = getpass.getuser()
 INDEX   = 1
 
@@ -88,12 +88,12 @@ def text(text, index, color = "green", bold = 0, end = "\n"):
 
 #Youtube video link to it's name
 def link_to_name(link):
-    r       = requests.get(link)
-    source  = r.text
+    r        = requests.get(link)
+    source   = r.text
 
-    regex   = r'(?<=<meta itemprop="name" content=")(.*?)(?=">)'
-    match   = re.search(regex, source)
-    name    = match.group(0)
+    regex    = r'(?<=<meta itemprop="name" content=")(.*?)(?=">)'
+    match    = re.search(regex, source)
+    name     = match.group(0)
 
     return name
 
@@ -111,16 +111,61 @@ def name_to_link(name):
     
     return (names, links)
 
+#Converts a playlist link to a list of video links
+def playlist_to_links(link):
+    dllink  = "https://www.youtube.com%s"
+    r       = requests.get(link)
+    source  = r.text
+
+    names_regex = r'(?<=data-title=")(.*?)(?=")'
+    links_regex = r'(?<=dir="ltr" href=")(.*?)(?=">)'
+
+    names       = re.findall(names_regex, source)
+    links       = re.findall(links_regex, source)
+    
+    links       = links[(len(links) == 101):]
+    links       = [dllink %html.unescape(links[i]).split("&")[0] \
+                   for i in range(len(links)) if names[i] != "[Privates Video]"]
+
+    return links
+
+#Converts a user/channel link to a list of video links
+def user_to_links(link, best=True):
+    dllink = "https://www.youtube.com%s"
+    kbest  = "?view=0&flow=grid&sort=p"
+
+    link   = link.split("/")
+    key    = link.index("www.youtube.com")
+    ktype  = link[key+1]
+    kname  = link[key+2]
+
+    build  = "https://www.youtube.com/%s/%s/videos%s" \
+             %(ktype, kname, kbest*best)
+
+    r      = requests.get(build)
+    source = r.text
+
+    names_regex = r'(?<=dir="ltr" title=")(.*?)(?="  aria-describedby)'
+    links_regex = r'(?<=<a href=")(.*?)(?=" class="yt-uix-sessionlink")'
+
+    names  = re.findall(names_regex, source)
+    links  = re.findall(links_regex, source)
+
+    links  = links[len(links) == 31:]
+    links  = [dllink% i for i in links]
+    
+    return links
+
 #Filters out unwanted links
-def filtering(names, links, filt="watch"):
-    #Filters: channel/user/watch
+def filtering(names, links, filt="watch", nfilt="list="):
+    #Filters: channel/user/watch/playlist
     
     names = names[len(names) == 21:]
     links = links[len(links) == 21:]
    
     invalid_links = []
     for index in range(len(links)):
-        if filt not in links[index]:
+        if filt not in links[index] or nfilt in links[index]:
             invalid_links.append(index)
 
     for index in invalid_links[::-1]:
@@ -143,20 +188,29 @@ def validate(link):
         link = "http://" + link
 
         if regex.match(link) == None:
-            return False
+            return (False, None, link)
 
     session  = requests.Session()
     response = session.head(link, allow_redirects = True).url
 
     A = regex.match(response) != None
     B = "youtube" in response
-    C = "watch"   in response
 
-    if A and B and C:
-        return response
-    
+    if A and B:
+        if   "watch"    in response:
+            return (True, "V", response) #V for Video
+
+        elif "user"     in response or "channel" in response:
+            return (True, "C", response) #C for channel
+
+        elif "playlist" in response:
+            return (True, "P", response) #P for playlist
+
+        else:
+            return (True, "E", response) #E for error
+
     else:
-        return False
+        return (True, False, response)
 
 ###############################################################################
 #Download and conversion functions
@@ -174,7 +228,7 @@ def download_video(link, name, path, video_format):
         match   = re.search(regex, quality)
         res     = match.group(0)
         video   = yt.get(video_format, res)
-    
+
         video.download(path)
         return True
         
@@ -269,7 +323,49 @@ def failed_download(file_path, target, error, display):
         termcolor.cprint(message, "red")
         
     exit()
+
+#Handles invalid clipboard
+def failed_link(clipboard, display):
+    message1 = "Error: Clipboard contains - '%s'" %clipboard
+    message2 = "That is not a valid youtube video link!"
+    message3 = "Would you like to use clipboard content as video name? [y/n] "
+    message4 = "Invalid input. Input should be either 'y' or 'n'"
+
+    if display:
+        text(message1, INDEX, color="red", bold="A")
+        text(message2, None , color="red", bold="A")
+
+    else:
+        termcolor.cprint(message1, "red")
+        termcolor.cprint(message2, "red")
+
+    while True:
+        if display:
+            text(message3, None , color="red", bold="A", end="")
+        
+        else:    
+            termcolor.cprint(message3, "red", end="")
+        
+        inp = input().lower()
+            
+        if inp == "y" or inp == "n":
+            break
+        
+        else:
+            if display:
+                text(message4, None , color="red", bold="A")
+
+            else:
+                termcolor.cprint(message4, "red")
+
+    if inp == "y":
+        return True 
+
+    if display:
+        line()
     
+    exit()
+
 #Deletes a file
 def delete(path, target, display):
     global INDEX
@@ -284,67 +380,6 @@ def delete(path, target, display):
     
     return True
     
-#Retuns video link and name by using clipboard
-def by_clip(display):
-    global INDEX
-    
-    clipboard = pyperclip.paste()
-    link      = validate(clipboard)
-
-    if not link:
-        message1 = "Error: Clipboard contains - '%s'" %clipboard
-        message2 = "That is not a valid youtube video link!"
-        message3 = "Would you like to use clipboard content as video name? [y/n] "
-        message4 = "Invalid input. Input should be either 'y' or 'n'"
-
-        if display:
-            text(message1, INDEX, color="red", bold="A")
-            text(message2, None , color="red", bold="A")
-
-        else:
-            termcolor.cprint(message1, "red")
-            termcolor.cprint(message2, "red")
-
-        while True:
-            if display:
-                text(message3, None , color="red", bold="A", end="")
-            
-            else:    
-                termcolor.cprint(message3, "red", end="")
-            
-            inp = input().lower()
-                
-            if inp == "y" or inp == "n":
-                break
-            
-            else:
-                if display:
-                    text(message4, None , color="red", bold="A")
-
-                else:
-                    termcolor.cprint(message4, "red")
-
-        if inp == "y":
-            return False
-
-        if display:
-            line()
-        
-        exit()
-
-
-    if display:
-        message = "Converting the video link"
-        text(message, INDEX)
-
-    name = link_to_name(link)
-
-    if display:
-        message = "Video name - '%s'" %name
-        text(message, INDEX)
-
-    return (link, name)
-
 #Returns video link and name by using provided name
 def by_name(name, choice, display):
     global INDEX
@@ -413,45 +448,103 @@ def by_name(name, choice, display):
 #Main
 ###############################################################################
 
-#Main function
+#Function that handles the input
 def main(options):
     global INDEX
-    
+    global PLAYLIST_LEN
+
     display = not options["--silent"]
 
     if display and not options["--text"]:
         line()
         
     name = options["<Name>"]
-    clip = options["--clip"]
-    
-    if name:
+
+    if   options["vid" ]:
         choice = options["--choice"]
         link, name = by_name(name, choice, display)
-    
-    elif clip:
+
+        return (name, [link])
+
+    elif options["clip"]:
         clipboard = pyperclip.paste()
+        link, opt, content = validate(clipboard)
         
-        if options["--text"]:
+        if  options["--text"]:
             options["<Name>"] = clipboard
             options["--text"] = False
-            options["--clip"] = False
-            return False
+            options["clip"  ] = False
+            options["vid"   ] = True
+
+            return None
+        
+        elif not link:
+            failed_link(clipboard, display)
+
+            options["<Name>"] = clipboard
+            options["clip"  ] = False
+            options["vid"   ] = True
+
+            return None
 
         else:
-            returned = by_clip(display)
+            if   opt == "V":
+                if display:
+                    message = "Converting the video link"
+                    text(message, INDEX)
 
-            if returned:
-                link, name = returned
+                name = link_to_name(content)
+
+                if display:
+                    message = "Video name - '%s'" %html.unescape(name)
+                    text(message, INDEX)
+
+                return (name, [content])
             
+            elif opt == "C":
+                links = user_to_links(content)
+                PLAYLIST_LEN = len(links)
+
+                return (None, links) 
+
+            elif opt == "P":
+                links = playlist_to_links(content)
+                PLAYLIST_LEN = len(links)
+
+                return (None, links)
+
             else:
-                options["<Name>"] = clipboard
-                options["--clip"] = False
-                return False
-        
+                message = "'%s' is an invalid %slink!" %(content, "YouTube "*(opt=="E")) 
+
+                if display:
+                    text(message, INDEX, color="red", bold="A")
+                    line()
+
+                else:
+                    termcolor.cprint(message, "red")
+
+                exit()
+
+#Function that handles the rest
+def get(name, link, options):
+    global INDEX
+    global song_id
+
+    display = not options["--silent"]
+
     if options["--name"]:
         name = options["<Name>"]
-    
+
+    elif not name:
+        name = link_to_name(link)
+
+        if display:
+            message = "Video [%s/%s] - '%s'" %(song_id, PLAYLIST_LEN, html.unescape(name))
+            text(message, INDEX)
+
+    name = html.unescape(name)
+    name = name.replace("/", "\\")
+
     autoplay     = options["--play"]
     video_format = options["--Vf"  ]
     audio_format = options["--Af"  ]
@@ -479,7 +572,6 @@ def main(options):
         failed_download(file_path, target_file, download, display)
     
     if display:
-        text("Done!", INDEX, bold = "A")
         
         if autoplay and convert:
             message = "Now playing: '%s'" %song.split("/")[-1]
@@ -491,8 +583,6 @@ def main(options):
             text(message, INDEX)
             play_target = target_file
             
-        line()
-    
     else:
         if autoplay and convert:
             play_target = song.split("/")[-1]
@@ -503,10 +593,30 @@ def main(options):
     if autoplay:
         song_path = "%s/%s" %(file_path, play_target)
         os.system("xdg-open '%s'" %song_path)
-    
-    return True
+        options["--play"] = False
+
 if __name__ == "__main__":
     options = arguments()
-    
-    while not main(options):
-        pass
+    line_dr = False
+    song_id = 1
+
+    while True:
+        output = main(options)
+
+        if output:
+            name, links = output
+            break
+
+    for link in links:
+        if not options["--silent"] and line_dr:
+            INDEX   = 1
+            line()
+
+        get(name, link, options)
+
+        line_dr = True
+        song_id += 1
+
+    if not options["--silent"]:
+        text("Done!", INDEX, bold = "A")
+        line()
