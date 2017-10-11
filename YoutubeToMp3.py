@@ -37,15 +37,15 @@ import pyperclip
 import termcolor
 import requests
 import getpass
-import errno
 import html
 import re
 import os
 
 #Constants
-VERSION = 3.1
+VERSION = 3.2
 USER    = getpass.getuser()
 INDEX   = 1
+ENQUEUE = False
 
 ###############################################################################
 #Functions used for terminal output
@@ -152,7 +152,7 @@ def user_to_links(link, best=True):
     names  = re.findall(names_regex, source)
     links  = re.findall(links_regex, source)
 
-    links  = links[len(links) == 31:]
+    links  = links[:-(len(links) == 31)]
     links  = [dllink% i for i in links]
     
     return links
@@ -196,7 +196,7 @@ def validate(link):
 
     A = regex.match(response) != None
     B = "youtube" in response
-    U = unavailable(response)
+    U = unavailable(response) if A and B and "watch" in response else False
 
     if A and B:
         if   "watch"    in response:
@@ -230,13 +230,17 @@ def unavailable(link):
     match2  = re.search(regex2, source, re.DOTALL)
 
     try:
-        hidden = match2.group(0).strip()
-        assert hidden == "hid"
+        hidden = match2.group(0).split()
+        assert "hid" in hidden
         return False
 
     except AttributeError:
         error = match1.group(0).strip()
         return error
+    
+    except AssertionError:
+        print(hidden)
+        exit()
 
 ###############################################################################
 #Download and conversion functions
@@ -360,7 +364,7 @@ def failed_download(file_path, target, error, display):
 #Handles invalid clipboard
 def failed_link(clipboard, display):
     message1 = "Error: Clipboard contains - '%s'" %clipboard
-    message2 = "That is not a valid youtube video link!"
+    message2 = "That is not a valid youtube link!"
     message3 = "Would you like to use clipboard content as video name? [y/n] "
     message4 = "Invalid input. Input should be either 'y' or 'n'"
 
@@ -472,7 +476,7 @@ def by_name(name, choice, display):
         text(message, INDEX)
     
     elif display:
-        message = "Matching video found: \'%s\'" %html.unescape(names[song_index])
+        message = "Matching video found: '%s'" %html.unescape(names[song_index])
         text(message, INDEX)
     
     return (DOWNLOAD %links[song_index], names[song_index])
@@ -574,6 +578,7 @@ def main(options):
 def get(name, link, options):
     global INDEX
     global song_id
+    global ENQUEUE
 
     display = not options["--silent"]
 
@@ -581,7 +586,12 @@ def get(name, link, options):
         name = options["<Name>"]
 
     elif not name:
-        name = link_to_name(link)
+        try:
+            name = link_to_name(link)
+        
+        except AttributeError:
+            print(link)
+            exit()
 
         if display:
             message = "Video [%s/%s] - '%s'" %(song_id, PLAYLIST_LEN, html.unescape(name))
@@ -616,7 +626,7 @@ def get(name, link, options):
     elif download == 2 or download == 3 or download == 4:
         failed_download(file_path, target_file, download, display)
     
-    if display:
+    if display and not ENQUEUE:
         
         if autoplay and convert:
             message = "Now playing: '%s'" %song.split("/")[-1]
@@ -637,8 +647,8 @@ def get(name, link, options):
 
     if autoplay:
         song_path = "%s/%s" %(file_path, play_target)
-        os.system("xdg-open '%s'" %song_path)
-        options["--play"] = False
+        os.system("totem --enqueue '%s'&" %song_path.replace("'", "'\\''"))
+        ENQUEUE = True
 
 if __name__ == "__main__":
     options = arguments()
